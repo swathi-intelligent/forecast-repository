@@ -1,8 +1,9 @@
 import logging
 from itertools import groupby
+import pandas as pd
 
 from forecast_app.models import PointPrediction
-
+from django.db import connection
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +20,62 @@ def _calculate_error_score_values(score, forecast_model, is_absolute_error):
     :param forecast_model: a ForecastModel
     :param is_absolute_error: True if abs() should be called
     """
+    # for now, call our new dataframe-based API on each of forecast_model's forecasts, i.e., the new granularity.
+    #
+    # proposed API:
+    # - input: score calculation function is called with these args:
+    #          score, forecast, truth_dataframe, predictions_dataframe
+    # - output: score_values_dataframe
+    #
+    # ** simulate the top-level update_score_for_model() -> update_score_for_forecast() **
+    for forecast in forecast_model.forecasts.all():
+        truth_dataframe = _truth_dataframe_for_forecast(forecast)
+        predictions_dataframe = _predictions_dataframe_for_forecast(forecast)
+        score_values_dataframe = _calculate_error_score_values_df(truth_dataframe, predictions_dataframe,
+                                                                  is_absolute_error)
+        _insert_score_values_dataframe(score_values_dataframe)
+
+
+def _truth_dataframe_for_forecast(forecast):
+    project = forecast.forecast_model.project
+    truth_qs = project\
+        .truth_data_qs()\
+        .filter(time_zero__timezero_date=forecast.time_zero.timezero_date)\
+        .values_list('time_zero__id', 'unit__id', 'target__id', 'value_i', 'value_f', 'value_t', 'value_d', 'value_b')\
+        .iterator()
+    # print('xx', list(truth_qs))
+    truth_dataframe = pd.DataFrame(
+        data=truth_qs,
+        columns=['timezero_id', 'unit_id', 'target_id', 'value_i', 'value_f', 'value_t', 'value_d', 'value_b']
+    )
+    truth_dataframe['value'] = truth_dataframe.bfill(axis=1).loc[:, 'value_i'].apply(str)
+    truth_dataframe = truth_dataframe.loc[:, ['timezero_id', 'unit_id', 'target_id', 'value']]
+
+    print('xx', truth_dataframe)
+
+    return truth_dataframe
+
+
+def _predictions_dataframe_for_forecast(forecast):
+    pass  # todo xx
+
+
+# ** API function for error and abs_error calculations **
+def _calculate_error_score_values_df(truth_dataframe, predictions_dataframe, is_absolute_error):
+    pass  # todo xx
+
+
+def _insert_score_values_dataframe(score_values_dataframe):
+    pass  # todo xx
+
+
+#
+# OLD
+#
+
+def _calculate_error_score_values_old(score, forecast_model, is_absolute_error):
     from forecast_app.scores.bin_utils import _insert_score_values  # avoid circular imports
     from forecast_app.scores.definitions import _validate_score_targets_and_data
-
 
     try:
         targets = _validate_score_targets_and_data(forecast_model)

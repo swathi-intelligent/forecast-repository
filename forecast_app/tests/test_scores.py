@@ -1,9 +1,11 @@
 import csv
 import datetime
+import itertools
 import json
 import logging
 import math
 from pathlib import Path
+import pandas as pd
 
 from django.test import TestCase
 
@@ -13,6 +15,7 @@ from forecast_app.models.forecast_model import ForecastModel
 from forecast_app.models.score import Score, ScoreValue
 from forecast_app.scores.bin_utils import _tz_loc_targ_pk_to_true_lwr, _targ_pk_to_lwrs, \
     _tz_loc_targ_pk_lwr_to_pred_val
+from forecast_app.scores.calc_error import _truth_dataframe_for_forecast
 from forecast_app.scores.calc_interval import _calculate_interval_score_values
 from forecast_app.scores.calc_log import LOG_SINGLE_BIN_NEGATIVE_INFINITY
 from forecast_app.scores.definitions import SCORE_ABBREV_TO_NAME_AND_DESCR
@@ -46,7 +49,7 @@ class ScoresTestCase(TestCase):
         # use default abbreviation (""):
         cls.forecast_model = ForecastModel.objects.create(project=cls.project, name='test model', abbreviation='abbrev')
         csv_file_path = Path('forecast_app/tests/EW1-KoTsarima-2017-01-17-small.csv')  # EW01 2017
-        load_cdc_csv_forecast_file(2016, cls.forecast_model, csv_file_path, cls.time_zero)
+        cls.forecast = load_cdc_csv_forecast_file(2016, cls.forecast_model, csv_file_path, cls.time_zero)
 
 
     def test_score_creation(self):
@@ -81,10 +84,48 @@ class ScoresTestCase(TestCase):
 
             # convert actual rows from IDs into strings for readability
             act_rows = sorted(abs_error_score.values.values_list('unit__name', 'target__name', 'value'))
-            for exp_row, act_row in zip(exp_rows, act_rows):
+            for exp_row, act_row in itertools.zip_longest(exp_rows, act_rows, fillvalue=None):
+                print(exp_row)
+                print(act_row)
                 self.assertEqual(exp_row[0], act_row[0])  # unit name
                 self.assertEqual(exp_row[1], act_row[1])  # target name
                 self.assertAlmostEqual(float(exp_row[2]), act_row[2])  # value
+
+
+    def test__truth_dataframe_for_forecast(self):
+        Score.ensure_all_scores_exist()
+
+        timezero_date_to_id = {timezero.timezero_date: timezero.id for timezero in self.forecast.forecast_model.project.timezeros.all()}
+        unit_name_to_id = {unit.name: unit.id for unit in self.forecast.forecast_model.project.units.all()}
+        target_name_to_id = {target.name: target.id for target in self.forecast.forecast_model.project.targets.all()}
+
+        exp_truth_dataframe = pd.read_csv(
+            Path('utils/ensemble-truth-table-script/truths-2016-2017-reichlab.csv'),
+            converters={
+                'timezero': datetime.date.fromisoformat, # our timezero dates are of ISO format
+                'value': str
+            }
+        )
+
+        mask = exp_truth_dataframe['timezero'] == self.forecast.time_zero.timezero_date
+        exp_truth_dataframe = exp_truth_dataframe[mask].replace({
+            'timezero': timezero_date_to_id,
+            'unit': unit_name_to_id,
+            'target': target_name_to_id
+        }).rename(columns={
+            'timezero': 'timezero_id',
+            'unit': 'unit_id',
+            'target': 'target_id'
+        }).reset_index(drop=True)
+
+        act_truth_dataframe = _truth_dataframe_for_forecast(self.forecast)
+
+        self.assertIsInstance(act_truth_dataframe, pd.DataFrame)
+        pd._testing.assert_frame_equal(exp_truth_dataframe, act_truth_dataframe)
+
+
+    def test__predictions_dataframe_for_forecast(self):
+        self.fail()
 
 
     #
