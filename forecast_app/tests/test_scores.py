@@ -93,12 +93,17 @@ class ScoresTestCase(TestCase):
 
 
     def test__truth_dataframe_for_forecast(self):
+
+        # make sure scores exist
         Score.ensure_all_scores_exist()
 
+        # test (expected) dataframe has names/dates, while the actual dataframe has IDs.
+        # these dictionaries are needed for the conversion.
         timezero_date_to_id = {timezero.timezero_date: timezero.id for timezero in self.forecast.forecast_model.project.timezeros.all()}
         unit_name_to_id = {unit.name: unit.id for unit in self.forecast.forecast_model.project.units.all()}
         target_name_to_id = {target.name: target.id for target in self.forecast.forecast_model.project.targets.all()}
 
+        # read the expected CSV into a pandas dataframe
         exp_truth_dataframe = pd.read_csv(
             Path('utils/ensemble-truth-table-script/truths-2016-2017-reichlab.csv'),
             converters={
@@ -107,6 +112,9 @@ class ScoresTestCase(TestCase):
             }
         )
 
+        # take out the timezeroes that we don't need
+        # replace names with IDs using the dictionaries
+        # rename the columns and recalculate the index so pandas can do a comparison
         mask = exp_truth_dataframe['timezero'] == self.forecast.time_zero.timezero_date
         exp_truth_dataframe = exp_truth_dataframe[mask].replace({
             'timezero': timezero_date_to_id,
@@ -118,14 +126,25 @@ class ScoresTestCase(TestCase):
             'target': 'target_id'
         }).reset_index(drop=True)
 
+        # get the actual dataframe
         act_truth_dataframe = _truth_dataframe_for_forecast(self.forecast)
 
+        # test: check that it is an instance of a DataFrame
         self.assertIsInstance(act_truth_dataframe, pd.DataFrame)
+
+        # test: check that the actual matches with the expected
+        # note: pandas has a _testing package containing useful testing functions
         pd._testing.assert_frame_equal(exp_truth_dataframe, act_truth_dataframe)
 
 
     def test__predictions_dataframe_for_forecast(self):
-        self.fail()
+        Score.ensure_all_scores_exist()
+
+        # get name to id dictionaries
+
+        # get expected predictions dataframe
+
+        # get
 
 
     #
